@@ -9,4 +9,8 @@ edition = "2021"
 vt100 = { git = "https://github.com/ayourtch/vt100-rust.git" }
 ptyprocess = "*"
 nix = { version = "*", features = ["poll"]}
-pancurses = "*"
+# pancurses = "*"
+crossterm = "*"
+env_logger = "*"
+termios = "*"
+termsize = "*"
