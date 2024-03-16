@@ -25,7 +25,9 @@ fn main() {
     use std::sync::atomic::AtomicBool;
     use std::sync::Arc;
     let winch = Arc::new(AtomicBool::new(false));
+    let sigquit = Arc::new(AtomicBool::new(false));
     let _ = signal_hook::flag::register(libc::SIGWINCH, Arc::clone(&winch));
+    let _ = signal_hook::flag::register(libc::SIGQUIT, Arc::clone(&sigquit));
 
     env_logger::init();
     let my_stdin = unsafe { File::from_raw_fd(0) };
@@ -62,11 +64,19 @@ fn main() {
     let mut count = 0;
     let mut winch_count = 0;
     let mut last_input: String = format!("");
+    let mut status_invoke = 0;
+    let mut status_delta_chars = 0;
+    let mut status_delta_mark_chars = 0;
 
     loop {
         let delta = parser.screen().contents_diff(&curr_screen);
         // write(my_stdout.as_fd(), format!("{esc}[2J{esc}[1;1H", esc = 27 as char).as_bytes());
         write(my_stdout.as_fd(), &delta);
+        status_delta_chars = delta.len();
+        if delta.len() > 0 {
+            status_delta_mark_chars = delta.len();
+        }
+
         curr_screen = parser.screen().clone();
         if winch.load(Ordering::Relaxed) {
             winch_count += 1;
@@ -123,24 +133,29 @@ fn main() {
             }
             let contents = curr_screen.contents_between(curr_row, col_start, curr_row, col_end + 1);
             let attrs = "\x1b[30;47m";
-            let status = format!(
-                "{}Prompter ({},{}): {} loops, winch: {:?} count {}, contents: '{}', last input: {:?} ({:?})\x1b[K",
-                attrs,
-                rows, cols,
+            let status_text = format!(
+                "Prompter ({},{}, {}): {} loops, delta ({}, {}) winch: {:?} count {}, contents: '{}', last input: {:?} ({:?})\x1b[K",
+                rows, cols, status_invoke,
                 count,
+                status_delta_chars, status_delta_mark_chars,
                 winch,
                 winch_count,
                 &contents,
                 &last_input,
                 &last_input.as_bytes()
             );
+            // let status_text = format!("{:?}", &termios);
+            let status = format!("{}{}", attrs, status_text);
 
             cursor_goto(&my_stdout, 1, rows);
-            let last_status_char = if status.len() > cols as usize {
+            let mut last_status_char = if status.len() > cols as usize {
                 cols as usize
             } else {
                 status.len()
             };
+            while !status.is_char_boundary(last_status_char) {
+                last_status_char -= 1;
+            }
 
             write(my_stdout.as_fd(), &status[0..last_status_char].as_bytes());
             let attrs = curr_screen.attributes_formatted();
@@ -189,9 +204,18 @@ fn main() {
             if revents == PollFlags::POLLIN {
                 let count = read(fds[1].as_fd().as_raw_fd(), &mut buf[..]);
                 if let Ok(count) = count {
-                    last_input = String::from_utf8_lossy(&buf[0..count]).to_string();
-                    write(pty.as_fd(), &buf[0..count]);
-                    write(logfile.as_fd(), &buf[0..count]);
+                    // A little hack which does not work if e.g. one does ssh, then another ssh from there.
+                    if termios.c_lflag == 2611 {
+                        last_input = format!("***SECRET***");
+                    } else {
+                        last_input = String::from_utf8_lossy(&buf[0..count]).to_string();
+                    }
+                    if &last_input == "\x07" {
+                        status_invoke += 1;
+                    } else {
+                        write(pty.as_fd(), &buf[0..count]);
+                        write(logfile.as_fd(), &buf[0..count]);
+                    }
                 }
             }
         }
