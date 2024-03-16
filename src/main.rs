@@ -53,6 +53,7 @@ fn main() {
     // println!("termios: {:?}", &termios);
 
     let mut count = 0;
+    let mut last_input: String = format!("");
 
     loop {
         let delta = parser.screen().contents_diff(&curr_screen);
@@ -96,6 +97,7 @@ fn main() {
             if revents == PollFlags::POLLIN {
                 let count = read(fds[1].as_fd().as_raw_fd(), &mut buf[..]);
                 if let Ok(count) = count {
+                    last_input = String::from_utf8_lossy(&buf[0..count]).to_string();
                     write(pty.as_fd(), &buf[0..count]);
                     write(logfile.as_fd(), &buf[0..count]);
                 }
@@ -139,8 +141,11 @@ fn main() {
             }
             let contents = curr_screen.contents_between(curr_row, col_start, curr_row, col_end + 1);
             let status = format!(
-                "Prompter status: {} loops, contents: '{}'\x1b[K",
-                count, &contents
+                "Prompter status: {} loops, contents: '{}', last input: {:?} ({:?})\x1b[K",
+                count,
+                &contents,
+                &last_input,
+                &last_input.as_bytes()
             );
 
             cursor_goto(&my_stdout, 1, rows);
