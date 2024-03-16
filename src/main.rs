@@ -183,7 +183,12 @@ fn main() {
             );
 
             cursor_goto(&my_stdout, 1, rows);
-            write(my_stdout.as_fd(), &status.as_bytes());
+            let last_status_char = if status.len() > cols as usize {
+                cols as usize
+            } else {
+                status.len()
+            };
+            write(my_stdout.as_fd(), &status[0..last_status_char].as_bytes());
             cursor_goto(&my_stdout, curr_col + 1, curr_row + 1);
         }
     }
