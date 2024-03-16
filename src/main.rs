@@ -86,6 +86,67 @@ fn main() {
                 format!("{esc}[2J{esc}[1;1H", esc = 27 as char).as_bytes(),
             );
         }
+        {
+            // update status line
+            count += 1;
+            let (curr_row, curr_col) = curr_screen.cursor_position();
+            let mut col = curr_col;
+            let mut col_start = curr_col;
+            let mut col_end = curr_col;
+            loop {
+                if let Some(cell) = curr_screen.cell(curr_row, col) {
+                    if cell.contents().contains(' ') {
+                        break;
+                    } else {
+                        col_start = col;
+                        if col == 0 {
+                            break;
+                        }
+                        col -= 1;
+                    }
+                } else {
+                    break;
+                }
+            }
+            col = curr_col;
+            loop {
+                if let Some(cell) = curr_screen.cell(curr_row, col) {
+                    if cell.contents().contains(' ') {
+                        break;
+                    } else {
+                        col_end = col;
+                        col += 1;
+                    }
+                } else {
+                    break;
+                }
+            }
+            let contents = curr_screen.contents_between(curr_row, col_start, curr_row, col_end + 1);
+            let attrs = "\x1b[30;47m";
+            let status = format!(
+                "{}Prompter ({},{}): {} loops, winch: {:?} count {}, contents: '{}', last input: {:?} ({:?})\x1b[K",
+                attrs,
+                rows, cols,
+                count,
+                winch,
+                winch_count,
+                &contents,
+                &last_input,
+                &last_input.as_bytes()
+            );
+
+            cursor_goto(&my_stdout, 1, rows);
+            let last_status_char = if status.len() > cols as usize {
+                cols as usize
+            } else {
+                status.len()
+            };
+
+            write(my_stdout.as_fd(), &status[0..last_status_char].as_bytes());
+            let attrs = curr_screen.attributes_formatted();
+            write(my_stdout.as_fd(), &attrs);
+            cursor_goto(&my_stdout, curr_col + 1, curr_row + 1);
+        }
 
         match process.is_alive() {
             Ok(alive) => {
@@ -133,63 +194,6 @@ fn main() {
                     write(logfile.as_fd(), &buf[0..count]);
                 }
             }
-        }
-
-        {
-            // update status line
-            count += 1;
-            let (curr_row, curr_col) = curr_screen.cursor_position();
-            let mut col = curr_col;
-            let mut col_start = curr_col;
-            let mut col_end = curr_col;
-            loop {
-                if let Some(cell) = curr_screen.cell(curr_row, col) {
-                    if cell.contents().contains(' ') {
-                        break;
-                    } else {
-                        col_start = col;
-                        if col == 0 {
-                            break;
-                        }
-                        col -= 1;
-                    }
-                } else {
-                    break;
-                }
-            }
-            col = curr_col;
-            loop {
-                if let Some(cell) = curr_screen.cell(curr_row, col) {
-                    if cell.contents().contains(' ') {
-                        break;
-                    } else {
-                        col_end = col;
-                        col += 1;
-                    }
-                } else {
-                    break;
-                }
-            }
-            let contents = curr_screen.contents_between(curr_row, col_start, curr_row, col_end + 1);
-            let status = format!(
-                "Prompter ({},{}): {} loops, winch: {:?} count {}, contents: '{}', last input: {:?} ({:?})\x1b[K",
-                rows, cols,
-                count,
-                winch,
-                winch_count,
-                &contents,
-                &last_input,
-                &last_input.as_bytes()
-            );
-
-            cursor_goto(&my_stdout, 1, rows);
-            let last_status_char = if status.len() > cols as usize {
-                cols as usize
-            } else {
-                status.len()
-            };
-            write(my_stdout.as_fd(), &status[0..last_status_char].as_bytes());
-            cursor_goto(&my_stdout, curr_col + 1, curr_row + 1);
         }
     }
     // crossterm::terminal::disable_raw_mode();
