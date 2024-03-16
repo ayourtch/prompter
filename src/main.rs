@@ -14,6 +14,11 @@ use std::os::fd::FromRawFd;
 
 use termios::*;
 
+fn cursor_goto(my_stdout: &File, x: u16, y: u16) {
+    let out = format!("\x1b[{};{}H", y, x);
+    write(my_stdout.as_fd(), out.as_bytes());
+}
+
 fn main() {
     env_logger::init();
     let my_stdin = unsafe { File::from_raw_fd(0) };
@@ -27,7 +32,7 @@ fn main() {
     let mut process = PtyProcess::spawn(Command::new("/bin/bash")).unwrap();
     let pty = process.get_raw_handle().unwrap();
 
-    process.set_window_size(cols, rows-1);
+    process.set_window_size(cols, rows - 1);
 
     let pfd1 = PollFd::new(pty.as_fd(), PollFlags::POLLIN);
     // let stdin = std::io::stdin();
@@ -36,7 +41,7 @@ fn main() {
     let pfd2 = PollFd::new(my_stdin.as_fd(), PollFlags::POLLIN);
     let mut buf = [0u8; 1024];
 
-    let mut parser = vt100::Parser::new(rows-1, cols, 0);
+    let mut parser = vt100::Parser::new(rows - 1, cols, 0);
     let mut curr_screen = parser.screen().clone();
 
     // crossterm::terminal::enable_raw_mode();
@@ -46,6 +51,8 @@ fn main() {
     tcsetattr(pty.as_raw_fd(), TCSANOW, &saved_termios).unwrap();
     let mut termios = Termios::from_fd(pty.as_raw_fd()).unwrap();
     // println!("termios: {:?}", &termios);
+
+    let mut count = 0;
 
     loop {
         let delta = parser.screen().contents_diff(&curr_screen);
@@ -93,6 +100,52 @@ fn main() {
                     write(logfile.as_fd(), &buf[0..count]);
                 }
             }
+        }
+
+        {
+            // update status line
+            count += 1;
+            let (curr_row, curr_col) = curr_screen.cursor_position();
+            let mut col = curr_col;
+            let mut col_start = curr_col;
+            let mut col_end = curr_col;
+            loop {
+                if let Some(cell) = curr_screen.cell(curr_row, col) {
+                    if cell.contents().contains(' ') {
+                        break;
+                    } else {
+                        col_start = col;
+                        if col == 0 {
+                            break;
+                        }
+                        col -= 1;
+                    }
+                } else {
+                    break;
+                }
+            }
+            col = curr_col;
+            loop {
+                if let Some(cell) = curr_screen.cell(curr_row, col) {
+                    if cell.contents().contains(' ') {
+                        break;
+                    } else {
+                        col_end = col;
+                        col += 1;
+                    }
+                } else {
+                    break;
+                }
+            }
+            let contents = curr_screen.contents_between(curr_row, col_start, curr_row, col_end + 1);
+            let status = format!(
+                "Prompter status: {} loops, contents: '{}'\x1b[K",
+                count, &contents
+            );
+
+            cursor_goto(&my_stdout, 1, rows);
+            write(my_stdout.as_fd(), &status.as_bytes());
+            cursor_goto(&my_stdout, curr_col + 1, curr_row + 1);
         }
     }
     // crossterm::terminal::disable_raw_mode();
