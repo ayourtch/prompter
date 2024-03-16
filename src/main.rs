@@ -74,9 +74,17 @@ fn main() {
             rows = new_sz.rows;
             cols = new_sz.cols;
             parser.screen_mut().set_size(rows - 1, cols);
+            curr_screen.set_size(rows - 1, cols);
             process.set_window_size(cols, rows - 1);
             process.signal(ptyprocess::Signal::SIGWINCH);
             winch.store(false, Ordering::Relaxed);
+
+            let mut parser = vt100::Parser::new(rows - 1, cols, 0);
+            curr_screen = parser.screen().clone();
+            write(
+                my_stdout.as_fd(),
+                format!("{esc}[2J{esc}[1;1H", esc = 27 as char).as_bytes(),
+            );
         }
 
         match process.is_alive() {
