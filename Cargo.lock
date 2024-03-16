@@ -317,6 +317,7 @@ dependencies = [
  "env_logger",
  "nix 0.28.0",
  "ptyprocess",
+ "signal-hook",
  "termios",
  "termsize",
  "vt100",

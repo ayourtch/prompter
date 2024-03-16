@@ -11,6 +11,7 @@ use nix::unistd::write;
 use ptyprocess::PtyProcess;
 use std::fs::File;
 use std::os::fd::FromRawFd;
+use std::sync::atomic::Ordering;
 
 use termios::*;
 
@@ -20,6 +21,12 @@ fn cursor_goto(my_stdout: &File, x: u16, y: u16) {
 }
 
 fn main() {
+    use nix::libc;
+    use std::sync::atomic::AtomicBool;
+    use std::sync::Arc;
+    let winch = Arc::new(AtomicBool::new(false));
+    let _ = signal_hook::flag::register(libc::SIGWINCH, Arc::clone(&winch));
+
     env_logger::init();
     let my_stdin = unsafe { File::from_raw_fd(0) };
     let my_stdout = unsafe { File::from_raw_fd(1) };
@@ -27,7 +34,7 @@ fn main() {
         my_stdout.as_fd(),
         format!("{esc}[2J{esc}[1;1H", esc = 27 as char).as_bytes(),
     );
-    let termsize::Size { rows, cols } = termsize::get().unwrap();
+    let termsize::Size { mut rows, mut cols } = termsize::get().unwrap();
 
     let mut process = PtyProcess::spawn(Command::new("/bin/bash")).unwrap();
     let pty = process.get_raw_handle().unwrap();
@@ -53,6 +60,7 @@ fn main() {
     // println!("termios: {:?}", &termios);
 
     let mut count = 0;
+    let mut winch_count = 0;
     let mut last_input: String = format!("");
 
     loop {
@@ -60,6 +68,16 @@ fn main() {
         // write(my_stdout.as_fd(), format!("{esc}[2J{esc}[1;1H", esc = 27 as char).as_bytes());
         write(my_stdout.as_fd(), &delta);
         curr_screen = parser.screen().clone();
+        if winch.load(Ordering::Relaxed) {
+            winch_count += 1;
+            let new_sz = termsize::get().unwrap();
+            rows = new_sz.rows;
+            cols = new_sz.cols;
+            parser.screen_mut().set_size(rows - 1, cols);
+            process.set_window_size(cols, rows - 1);
+            process.signal(ptyprocess::Signal::SIGWINCH);
+            winch.store(false, Ordering::Relaxed);
+        }
 
         match process.is_alive() {
             Ok(alive) => {
@@ -74,7 +92,12 @@ fn main() {
             }
         }
         let mut fds = [pfd1, pfd2];
-        let res = poll(&mut fds, PollTimeout::from(100u16)).unwrap();
+
+        let res = poll(&mut fds, PollTimeout::from(100u16));
+        if res.is_err() {
+            continue;
+        }
+
         let mut new_termios = Termios::from_fd(pty.as_raw_fd()).unwrap();
         if new_termios != termios {
             tcsetattr(1, TCSANOW, &new_termios).unwrap();
@@ -141,8 +164,11 @@ fn main() {
             }
             let contents = curr_screen.contents_between(curr_row, col_start, curr_row, col_end + 1);
             let status = format!(
-                "Prompter status: {} loops, contents: '{}', last input: {:?} ({:?})\x1b[K",
+                "Prompter ({},{}): {} loops, winch: {:?} count {}, contents: '{}', last input: {:?} ({:?})\x1b[K",
+                rows, cols,
                 count,
+                winch,
+                winch_count,
                 &contents,
                 &last_input,
                 &last_input.as_bytes()
