@@ -20,14 +20,18 @@ fn cursor_goto(my_stdout: &File, x: u16, y: u16) {
     write(my_stdout.as_fd(), out.as_bytes());
 }
 
+fn patch_termios(termios: Termios) -> Termios {
+    let mut termios = termios;
+    termios.c_lflag &= !(termios::ISIG | termios::ICANON);
+    termios
+}
+
 fn main() {
     use nix::libc;
     use std::sync::atomic::AtomicBool;
     use std::sync::Arc;
     let winch = Arc::new(AtomicBool::new(false));
-    let sigquit = Arc::new(AtomicBool::new(false));
     let _ = signal_hook::flag::register(libc::SIGWINCH, Arc::clone(&winch));
-    let _ = signal_hook::flag::register(libc::SIGQUIT, Arc::clone(&sigquit));
 
     env_logger::init();
     let my_stdin = unsafe { File::from_raw_fd(0) };
@@ -59,7 +63,7 @@ fn main() {
     let saved_termios = Termios::from_fd(1).unwrap();
     tcsetattr(pty.as_raw_fd(), TCSANOW, &saved_termios).unwrap();
     let mut termios = Termios::from_fd(pty.as_raw_fd()).unwrap();
-    // println!("termios: {:?}", &termios);
+    termios = patch_termios(termios);
 
     let mut count = 0;
     let mut winch_count = 0;
@@ -184,7 +188,8 @@ fn main() {
 
         let mut new_termios = Termios::from_fd(pty.as_raw_fd()).unwrap();
         if new_termios != termios {
-            tcsetattr(1, TCSANOW, &new_termios).unwrap();
+            let patched_termios = patch_termios(new_termios);
+            tcsetattr(1, TCSANOW, &patched_termios).unwrap();
             // write(logfile.as_fd(), "AYXX: termios changed!\n".as_bytes());
             termios = new_termios;
         }
