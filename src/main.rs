@@ -12,8 +12,8 @@ use ptyprocess::PtyProcess;
 use std::fs::File;
 use std::os::fd::FromRawFd;
 use std::sync::atomic::Ordering;
-
-use termios::*;
+use termios::tcsetattr;
+use termios::{Termios, TCSANOW};
 
 fn cursor_goto(my_stdout: &File, x: u16, y: u16) {
     let out = format!("\x1b[{};{}H", y, x);
@@ -24,6 +24,62 @@ fn patch_termios(termios: Termios) -> Termios {
     let mut termios = termios;
     termios.c_lflag &= !(termios::ISIG | termios::ICANON);
     termios
+}
+
+fn termios_c_lflag(termios: &Termios) -> String {
+    use termios::os::linux::ECHOKE;
+    use termios::os::linux::ECHOPRT;
+    use termios::os::linux::PENDIN;
+    use termios::*;
+
+    use termios::os::linux::ECHOCTL;
+    use termios::os::linux::FLUSHO;
+
+    let mut out = format!("");
+    let c = termios.c_lflag;
+    if c & ICANON == 0 {
+        out.push_str(" ICANON")
+    }
+    if c & ECHO == 0 {
+        out.push_str(" ECHO")
+    }
+    if c & ECHOE == 0 {
+        out.push_str(" ECHOE")
+    }
+    if c & ECHOPRT == 0 {
+        out.push_str(" ECHOPRT")
+    }
+    if c & ECHOK == 0 {
+        out.push_str(" ECHOK")
+    }
+    if c & ECHOKE == 0 {
+        out.push_str(" ECHOKE")
+    }
+    if c & ECHONL == 0 {
+        out.push_str(" ECHONL")
+    }
+    if c & ECHOCTL == 0 {
+        out.push_str(" ECHOCTL")
+    }
+    if c & ISIG == 0 {
+        out.push_str(" ISIG")
+    }
+    if c & IEXTEN == 0 {
+        out.push_str(" IEXTEN")
+    }
+    if c & NOFLSH == 0 {
+        out.push_str(" NOFLSH")
+    }
+    if c & TOSTOP == 0 {
+        out.push_str(" TOSTOP")
+    }
+    if c & FLUSHO == 0 {
+        out.push_str(" FLUSHO")
+    }
+    if c & PENDIN == 0 {
+        out.push_str(" PENDIN")
+    }
+    out
 }
 
 fn main() {
@@ -138,8 +194,9 @@ fn main() {
             let contents = curr_screen.contents_between(curr_row, col_start, curr_row, col_end + 1);
             let attrs = "\x1b[30;47m";
             let status_text = format!(
-                "Prompter ({},{}, {}): {} loops, delta ({}, {}) winch: {:?} count {}, contents: '{}', last input: {:?} ({:?})\x1b[K",
+                "Prompter ({},{}, {}): {} {} loops, delta ({}, {}) winch: {:?} count {}, contents: '{}', last input: {:?} ({:?})\x1b[K",
                 rows, cols, status_invoke,
+                termios_c_lflag(&termios),
                 count,
                 status_delta_chars, status_delta_mark_chars,
                 winch,
@@ -165,6 +222,14 @@ fn main() {
             let attrs = curr_screen.attributes_formatted();
             write(my_stdout.as_fd(), &attrs);
             cursor_goto(&my_stdout, curr_col + 1, curr_row + 1);
+        }
+
+        let mut new_termios = Termios::from_fd(pty.as_raw_fd()).unwrap();
+        if new_termios != termios {
+            let patched_termios = patch_termios(new_termios);
+            tcsetattr(1, TCSANOW, &patched_termios).unwrap();
+            // write(logfile.as_fd(), "AYXX: termios changed!\n".as_bytes());
+            termios = new_termios;
         }
 
         match process.is_alive() {
