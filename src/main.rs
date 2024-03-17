@@ -194,9 +194,8 @@ fn main() {
             let contents = curr_screen.contents_between(curr_row, col_start, curr_row, col_end + 1);
             let attrs = "\x1b[30;47m";
             let status_text = format!(
-                "Prompter ({},{}, {}): {} {} loops, delta ({}, {}) winch: {:?} count {}, contents: '{}', last input: {:?} ({:?})\x1b[K",
+                "Prompter ({},{}, {}): {} loops, delta ({}, {}) winch: {:?} count {}, contents: '{}', last input: {:?} ({:?})\x1b[K",
                 rows, cols, status_invoke,
-                termios_c_lflag(&termios),
                 count,
                 status_delta_chars, status_delta_mark_chars,
                 winch,
