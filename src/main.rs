@@ -101,16 +101,15 @@ fn main() {
     let mut process = PtyProcess::spawn(Command::new("/bin/bash")).unwrap();
     let pty = process.get_raw_handle().unwrap();
 
-    process.set_window_size(cols, rows - 1);
-
     let pfd1 = PollFd::new(pty.as_fd(), PollFlags::POLLIN);
     // let stdin = std::io::stdin();
     // let stdout = std::io::stdout();
 
     let pfd2 = PollFd::new(my_stdin.as_fd(), PollFlags::POLLIN);
-    let mut buf = [0u8; 1024];
+    let mut buf = [0u8; 32768];
 
-    let mut parser = vt100::Parser::new(rows - 1, cols, 0);
+    process.set_window_size(cols - 30, rows - 1);
+    let mut parser = vt100::Parser::new(rows - 1, cols - 30, 0);
     let mut curr_screen = parser.screen().clone();
 
     // crossterm::terminal::enable_raw_mode();
@@ -143,13 +142,13 @@ fn main() {
             let new_sz = termsize::get().unwrap();
             rows = new_sz.rows;
             cols = new_sz.cols;
-            parser.screen_mut().set_size(rows - 1, cols);
-            curr_screen.set_size(rows - 1, cols);
-            process.set_window_size(cols, rows - 1);
+            parser.screen_mut().set_size(rows - 1, cols - 30);
+            curr_screen.set_size(rows - 1, cols - 30);
+            process.set_window_size(cols - 30, rows - 1);
             process.signal(ptyprocess::Signal::SIGWINCH);
             winch.store(false, Ordering::Relaxed);
 
-            let mut parser = vt100::Parser::new(rows - 1, cols, 0);
+            let mut parser = vt100::Parser::new(rows - 1, cols - 30, 0);
             curr_screen = parser.screen().clone();
             write(
                 my_stdout.as_fd(),
@@ -218,6 +217,12 @@ fn main() {
             }
 
             write(my_stdout.as_fd(), &status[0..last_status_char].as_bytes());
+            let attrs = "\x1b[30;47m";
+            for zrow in 0..rows - 1 {
+                cursor_goto(&my_stdout, cols - 30 + 1, zrow + 1);
+                let fill = format!("{}| XXXX\x1b[K", &attrs);
+                write(my_stdout.as_fd(), &fill.as_bytes());
+            }
             let attrs = curr_screen.attributes_formatted();
             write(my_stdout.as_fd(), &attrs);
             cursor_goto(&my_stdout, curr_col + 1, curr_row + 1);
