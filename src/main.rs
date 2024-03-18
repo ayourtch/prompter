@@ -27,13 +27,7 @@ fn patch_termios(termios: Termios) -> Termios {
 }
 
 fn termios_c_lflag(termios: &Termios) -> String {
-    use termios::os::linux::ECHOKE;
-    use termios::os::linux::ECHOPRT;
-    use termios::os::linux::PENDIN;
     use termios::*;
-
-    use termios::os::linux::ECHOCTL;
-    use termios::os::linux::FLUSHO;
 
     let mut out = format!("");
     let c = termios.c_lflag;
@@ -46,20 +40,11 @@ fn termios_c_lflag(termios: &Termios) -> String {
     if c & ECHOE == 0 {
         out.push_str(" ECHOE")
     }
-    if c & ECHOPRT == 0 {
-        out.push_str(" ECHOPRT")
-    }
     if c & ECHOK == 0 {
         out.push_str(" ECHOK")
     }
-    if c & ECHOKE == 0 {
-        out.push_str(" ECHOKE")
-    }
     if c & ECHONL == 0 {
         out.push_str(" ECHONL")
-    }
-    if c & ECHOCTL == 0 {
-        out.push_str(" ECHOCTL")
     }
     if c & ISIG == 0 {
         out.push_str(" ISIG")
@@ -72,12 +57,6 @@ fn termios_c_lflag(termios: &Termios) -> String {
     }
     if c & TOSTOP == 0 {
         out.push_str(" TOSTOP")
-    }
-    if c & FLUSHO == 0 {
-        out.push_str(" FLUSHO")
-    }
-    if c & PENDIN == 0 {
-        out.push_str(" PENDIN")
     }
     out
 }
