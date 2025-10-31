@@ -95,6 +95,13 @@ fn main() {
     let mut logfile = File::create("log.txt").unwrap();
 
     let saved_termios = Termios::from_fd(1).unwrap();
+
+    // Put stdin in raw mode so we get the REAL escape sequences from the terminal
+    let saved_stdin_termios = Termios::from_fd(0).unwrap();
+    let mut raw_stdin_termios = saved_stdin_termios;
+    raw_stdin_termios = patch_termios(raw_stdin_termios);
+    tcsetattr(0, TCSANOW, &raw_stdin_termios).unwrap();
+
     tcsetattr(pty.as_raw_fd(), TCSANOW, &saved_termios).unwrap();
     let mut termios = Termios::from_fd(pty.as_raw_fd()).unwrap();
     termios = patch_termios(termios);
@@ -246,6 +253,14 @@ fn main() {
             if revents == PollFlags::POLLIN {
                 let count = read(fds[0].as_fd().as_raw_fd(), &mut buf[..]);
                 if let Ok(count) = count {
+                    // Forward keypad mode sequences to the real terminal
+                    let data = &buf[0..count];
+                    let data_str = String::from_utf8_lossy(data);
+                    if data_str.contains("\x1b[?1h") || data_str.contains("\x1b[?1l") {
+                        // Application keypad mode sequences - forward to real terminal
+                        write(my_stdout.as_fd(), data);
+                    }
+
                     // write(my_stdout.as_fd(), &buf[0..count]);
                     write(logfile.as_fd(), &buf[0..count]);
                     parser.process(&buf[0..count]);
@@ -266,6 +281,8 @@ fn main() {
                     if &last_input == "\x07" {
                         status_invoke += 1;
                     } else {
+                        // Write all data atomically to ensure escape sequences aren't fragmented
+                        // This is critical for programs like less/mc that use VMIN=1,VTIME=0
                         write(pty.as_fd(), &buf[0..count]);
                         write(logfile.as_fd(), &buf[0..count]);
                     }
@@ -275,6 +292,7 @@ fn main() {
     }
     // crossterm::terminal::disable_raw_mode();
 
+    tcsetattr(0, TCSANOW, &saved_stdin_termios).unwrap();
     tcsetattr(1, TCSANOW, &saved_termios).unwrap();
 
     println!("prompter finished!");
